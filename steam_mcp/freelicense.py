@@ -255,6 +255,111 @@ def claim(appid: int | None, subid: int | None, confirm: bool) -> dict[str, Any]
     }
 
 
+# ---------------------------------------------------------------- 钱包充值码
+
+REDEEM_URL = "https://store.steampowered.com/account/ajaxredeemwalletcode"
+
+# Steam 对这些 detail 没有公开文档；下列措辞是按实测行为写的，不做超出证据的断言。
+REDEEM_DETAIL_HINTS = {
+    14: "码无效。常见原因：码打错、已被使用、或与账号地区不匹配"
+        "（Steam 钱包码有区域限制，印尼区码只能充印尼区账号）。Steam 不细分具体是哪一种。",
+}
+
+
+def _mask_code(code: str) -> str:
+    """凭证类字符串只留前 4 位，避免兑换码进日志/上下文。"""
+    c = (code or "").strip()
+    return (c[:4] + "****") if len(c) > 4 else "****"
+
+
+def redeem_wallet_code(
+    code: str,
+    *,
+    confirm: bool = False,
+    captcha_gid: str = "",
+    captcha_text: str = "",
+) -> dict[str, Any]:
+    """兑换 Steam 钱包充值码 / 礼品卡。三重门槛：confirm / allow_sensitive / 非空码。
+
+    这是**真正加钱**的操作，与免费领取不同；码本身是钱，任何返回值与日志只给掩码。
+    """
+    raw = (code or "").strip()
+    if len(raw) < 8:
+        return {
+            "ok": False,
+            "error": "bad_input",
+            "hint": "充值码格式通常是 XXXX-XXXX-XXXX 之类，至少 8 位。",
+            "code_hint": _mask_code(raw),
+        }
+    if not confirm:
+        return {
+            "ok": False,
+            "error": "confirmation_required",
+            "message": "兑换会直接改动钱包余额，必须显式 confirm=true。",
+            "hint": "确认码和账号地区一致后，用 confirm=true 再调一次。",
+            "code_hint": _mask_code(raw),
+        }
+    if not config.load()["behavior"].get("allow_sensitive"):
+        return {
+            "ok": False,
+            "error": "confirmation_required",
+            "message": "behavior.allow_sensitive 未开启，禁止兑换充值码。",
+            "hint": "先 steam_config_set(allow_sensitive=true)。",
+            "code_hint": _mask_code(raw),
+        }
+
+    auth.require_login()
+    auth.warm_session()
+    data: dict[str, Any] = {"wallet_code": raw, "sessionid": auth.sessionid()}
+    if captcha_text:
+        data["input_captcha"] = captcha_text
+        if captcha_gid:
+            data["input_captcha_gid"] = captcha_gid
+
+    resp = http.request(
+        "POST",
+        REDEEM_URL,
+        data=data,
+        cookies=auth.cookies_for("store.steampowered.com"),
+        headers={
+            "Referer": "https://store.steampowered.com/account/redeemwalletcode",
+            "X-Requested-With": "XMLHttpRequest",
+        },
+    )
+    try:
+        body = resp.json() or {}
+    except http.SteamError:
+        return {"ok": False, "error": "bad_payload", "code_hint": _mask_code(raw),
+                "hint": f"返回不是 JSON（HTTP {resp.status}）；多半是登录态或地区限制，先跑 steam_net_check。",
+                "body_preview": resp.text[:200]}
+
+    success = body.get("success")
+    detail = body.get("detail")
+    if success == 1:
+        return {
+            "ok": True,
+            "redeemed": True,
+            "code_hint": _mask_code(raw),
+            "detail": detail,
+            "hint": "兑换成功。用 steam_auth_status 或账户页确认新余额。",
+        }
+
+    out: dict[str, Any] = {
+        "ok": False,
+        "redeemed": False,
+        "code_hint": _mask_code(raw),
+        "success": success,
+        "detail": detail,
+        "hint": REDEEM_DETAIL_HINTS.get(detail, "兑换被拒；Steam 未给出可读原因，按 detail 码排查。"),
+    }
+    if body.get("captcha_needed") or body.get("captcha_gid"):
+        out["captcha_required"] = True
+        out["captcha_gid"] = body.get("captcha_gid") or body.get("input_captcha_gid")
+        out["captcha_url"] = "https://store.steampowered.com/account/redeemwalletcode"
+        out["hint"] = "Steam 要求验证码：打开 captcha_url 读图后，带 captcha_gid + captcha_text 重试。"
+    return out
+
+
 def free_license(
     action: str = "preview",
     appid: int | None = None,

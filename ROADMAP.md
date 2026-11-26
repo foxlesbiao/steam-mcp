@@ -270,6 +270,19 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 
 > 读法注意：ITAD 的「历史最低」跨全部商店，Steam 商店区价格往往不是最低那家。想等史低就要接受在 Epic/GOG 下单，只玩 Steam 库则看 Steam 自己的底价。
 
+### 7.7 钱包充值码兑换（v1.3.1）
+
+`steam_redeem_wallet_code(code, confirm, captcha_gid, captcha_text)` —— 兑换 Steam 钱包充值码 / 礼品卡。
+
+- 端点：`POST /account/ajaxredeemwalletcode`（从 `redeemwalletcode.js` 里挖出来的；同族还有 `ajaxcreatewalletandcheckfunds`、`ajaxrefreshwalletcaptcha`）
+- 返回：`{"success":1}` 成功；`{"success":2,"detail":N}` 失败。实测无效码为 `detail=14`，Steam 不细分「打错 / 已用 / 地区不符」，所以 hint 里三种都列出来
+- **三道门槛**：`confirm=true` + `behavior.allow_sensitive=true` + 码长 ≥8。前两道任一不满足都不会发请求
+- **码脱敏**：返回值与 hint 里只给 `ABCD****`，完整码只存在请求体里
+- **验证码**：页面有 `input_captcha_gid` / `input_captcha` 字段。若服务端要求验证码，返回 `captcha_required` + `captcha_gid` + 页面地址，让调用方补 `captcha_text` 重试——不假装成功
+- **地区限制**：钱包码必须与账号地区一致（印尼区码充印尼区账号），这是 Steam 侧规则，工具只负责如实报错
+
+测试 `tests/test_redeem_offline.py` 覆盖：短码拒绝 / 未 confirm 不发请求 / allow_sensitive 关闭不发请求 / 成功 / detail 透出 / 验证码透出 / 返回值不含完整码。
+
 ### 7.5 通知暂缓
 
 `/actions/ajaxgetusernotifications` 返回 44KB、`/my/notifications/` 返回 125KB，都是 React SSR 片段，没有稳定的 `g_rgNotifications` 之类结构，解析成本高且极可能随改版失效。当前价值不足以支撑这份维护成本，暂不做；若要能拿到，优先考虑用 `steam_request` 临时读取 + 人工确认结构，再决定是否固化。

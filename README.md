@@ -3,7 +3,7 @@
 一个给 AI agent 用的 Steam MCP：登录一次，之后档案、游戏库、愿望单、好友、库存、市场、商店、评测、购物车都能读写，
 另外还有一组「只读分析」工具（游玩时长、折扣雷达、Deck 兼容、库对比、价格快照）和「跨平台比价」（Steam 市场 vs 网易 BUFF、IsThereAnyDeal 历史低价）。
 
-- 当前版本：**v1.3.0，48 个工具**
+- 当前版本：**v1.3.1，49 个工具**
 - 平台：Windows / Linux（纯 Python，无 GUI 依赖）
 - 定位：agent 优先——所有工具结构化返回、明确的 `error` 码 + `hint`、批量任务给进度而不是卡死
 - **明确不做**：市场交易（上架/改价/撤单/接报价）、账号安全设置、本地客户端层
@@ -110,7 +110,7 @@ Steam 校验写操作（加愿望单、加购物车…）时要求 `sessionid` �
 
 **价格历史（ITAD）**：`steam_price_history`（历史最低价/折扣/店铺/时间点）`steam_itad_key`（配置免费 API key）
 
-**商店**：`steam_store_search` `steam_app_details` `steam_wishlist` `steam_wishlist_edit` `steam_cart`
+**商店**：`steam_store_search` `steam_app_details` `steam_wishlist` `steam_wishlist_edit` `steam_cart` `steam_free_license` `steam_redeem_wallet_code`（兑换钱包充值码/礼品卡，`[花钱]`）
 
 **库存市场**：`steam_inventory`（默认 753/6，CS2 用 730/2，Dota2 570/2，TF2 440/2）`steam_market_price` `steam_market_search`
 

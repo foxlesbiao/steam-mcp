@@ -17,7 +17,7 @@ from . import api, auth, buff, checkout, config, freelicense, generic, http, ins
 
 mcp = MCPServer(
     name="steam",
-    version="1.3.0",
+    version="1.3.1",
     instructions=(
         "Steam 账号能力的通用 MCP。首次使用先 steam_auth_status；未登录则用 steam_auth_import_cookie"
         "（推荐）或 steam_auth_login。密码登录返回 awaiting_confirmation 时，先 steam_auth_poll 等待手机 App / 邮箱确认"
@@ -357,6 +357,23 @@ def steam_itad_key(key: str = "") -> dict[str, Any]:
 @_safe
 def steam_price_history(appid: int, country: str = "CN") -> dict[str, Any]:
     return insights.price_history(appid, country=country)
+
+
+@mcp.tool(description=(
+    "[花钱] 兑换 Steam 钱包充值码 / 礼品卡，直接增加余额。"
+    "必须 confirm=true 且 behavior.allow_sensitive=true；码有地区限制（码必须与账号地区一致）。"
+    "返回与日志里的码只显示前 4 位。若返回 captcha_required，需带 captcha_gid + captcha_text 重试。"
+))
+@_safe
+def steam_redeem_wallet_code(
+    code: str,
+    confirm: bool = False,
+    captcha_gid: str = "",
+    captcha_text: str = "",
+) -> dict[str, Any]:
+    return freelicense.redeem_wallet_code(
+        code, confirm=confirm, captcha_gid=captcha_gid, captcha_text=captcha_text
+    )
 
 
 @mcp.tool(description="某个游戏的成就进度与解锁情况（需要 api 可达或 Web API Key）。")
