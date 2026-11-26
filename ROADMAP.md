@@ -275,8 +275,9 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 `steam_redeem_wallet_code(code, confirm, captcha_gid, captcha_text)` —— 兑换 Steam 钱包充值码 / 礼品卡。
 
 - 端点：`POST /account/ajaxredeemwalletcode`（从 `redeemwalletcode.js` 里挖出来的；同族还有 `ajaxcreatewalletandcheckfunds`、`ajaxrefreshwalletcaptcha`）
-- 返回：`{"success":1}` 成功；`{"success":2,"detail":N}` 失败。**detail 能区分状态**（实测）：
-  - `9` = 已被兑换过（两枚确认用过的码均返回 9，余额无变化）
+- 返回：`{"success":1}` 成功；`{"success":2,"detail":N}` 失败。**detail 能区分状态**（三态均已实测）：
+  - `0` = 兑换成功（真码实跑，余额 +8,000 IDR 验证到底）
+  - `9` = 已被兑换过（两枚用过的码均返回 9，余额无变化）
   - `14` = 码无效（格式合法的假码返回 14）
   - 其他值不瞎编，原样透出 + "按 detail 码排查"
 - **三道门槛**：`confirm=true` + `behavior.allow_sensitive=true` + 码长 ≥8。前两道任一不满足都不会发请求
