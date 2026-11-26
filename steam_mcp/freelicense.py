@@ -259,10 +259,13 @@ def claim(appid: int | None, subid: int | None, confirm: bool) -> dict[str, Any]
 
 REDEEM_URL = "https://store.steampowered.com/account/ajaxredeemwalletcode"
 
-# Steam 对这些 detail 没有公开文档；下列措辞是按实测行为写的，不做超出证据的断言。
+# Steam 对这些 detail 没有公开文档；下面两条是按实测行为归纳的，都标注了证据来源。
 REDEEM_DETAIL_HINTS = {
-    14: "码无效。常见原因：码打错、已被使用、或与账号地区不匹配"
-        "（Steam 钱包码有区域限制，印尼区码只能充印尼区账号）。Steam 不细分具体是哪一种。",
+    9: "该码已被兑换过（Steam 不接受重复兑换）。"
+       "实测依据：两枚确认用过的码均返回 9，余额无变化。",
+    14: "码无效。常见原因：码打错、或与账号地区不匹配"
+        "（Steam 钱包码有区域限制，印尼区码只能充印尼区账号）。"
+        "实测依据：格式合法的假码返回 14，与其他错误码可区分。",
 }
 
 

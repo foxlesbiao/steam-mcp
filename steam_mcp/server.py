@@ -17,7 +17,7 @@ from . import api, auth, buff, checkout, config, freelicense, generic, http, ins
 
 mcp = MCPServer(
     name="steam",
-    version="1.3.1",
+    version="1.3.2",
     instructions=(
         "Steam 账号能力的通用 MCP。首次使用先 steam_auth_status；未登录则用 steam_auth_import_cookie"
         "（推荐）或 steam_auth_login。密码登录返回 awaiting_confirmation 时，先 steam_auth_poll 等待手机 App / 邮箱确认"

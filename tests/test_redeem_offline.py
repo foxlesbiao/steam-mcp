@@ -79,7 +79,15 @@ def test_rejected() -> None:
     r = freelicense.redeem_wallet_code("ABCD-0000-0000-0000", confirm=True)
     check("失败不冒充成功", r.get("ok") is False and r.get("redeemed") is False, str(r))
     check("保留 detail 码", r.get("detail") == 14, str(r))
-    check("给出可读 hint", "地区" in (r.get("hint") or ""), str(r.get("hint")))
+    check("14 解释为无效码", "无效" in (r.get("hint") or ""), str(r.get("hint")))
+
+    install(True, {"success": 2, "detail": 9})
+    r9 = freelicense.redeem_wallet_code("ABCD-0000-0000-0002", confirm=True)
+    check("9 解释为已被兑换", "已被兑换" in (r9.get("hint") or ""), str(r9.get("hint")))
+
+    install(True, {"success": 2, "detail": 999})
+    r999 = freelicense.redeem_wallet_code("ABCD-0000-0000-0003", confirm=True)
+    check("未知 detail 不瞎编原因", "按 detail 码排查" in (r999.get("hint") or ""), str(r999.get("hint")))
 
 
 def test_captcha() -> None:
