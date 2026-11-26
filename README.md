@@ -96,6 +96,9 @@ Steam 校验写操作（加愿望单、加购物车…）时要求 `sessionid` �
 
 ## 工具清单
 
+> 📖 每个工具的参数、返回与注意事项见 **[TOOLS.md](TOOLS.md)**（自动生成，覆盖全部 49 个工具，含错误码速查表）。
+> 重新生成：`python3 scripts/gen_tools_doc.py > TOOLS.md`
+
 **登录**：`steam_auth_status` `steam_auth_import_cookie` `steam_auth_login` `steam_auth_guard` `steam_auth_poll` `steam_auth_refresh` `steam_auth_logout` `steam_session_warm` `steam_webapi_key`
 
 **诊断/配置**：`steam_net_check` `steam_config_get` `steam_config_set`
