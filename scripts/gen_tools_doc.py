@@ -29,15 +29,15 @@ GROUPS = [
         "steam_cart", "steam_free_license", "steam_checkout", "steam_checkout_session",
         "steam_redeem_wallet_code",
     ]),
-    ("市场（只读）", "行情、我的挂单、跨平台比价", [
+    ("市场（只读）", "行情、我的挂单、成交历史、库存估值、跨平台比价", [
         "steam_inventory", "steam_market_price", "steam_market_search", "steam_market_listings",
-        "steam_market_compare",
+        "steam_market_history", "steam_inventory_value", "steam_market_compare",
     ]),
-    ("分析与价格", "折扣雷达、Deck 兼容、价格快照、历史低价", [
+    ("分析与价格", "折扣雷达、Deck 兼容、价格快照、历史低价、成就完美度", [
         "steam_deals", "steam_app_extras", "steam_deck_compat", "steam_price_watch",
-        "steam_price_history", "steam_itad_key",
+        "steam_price_history", "steam_itad_key", "steam_achievement_hunter",
     ]),
-    ("账号历史", "购买与许可记录", ["steam_purchase_history"]),
+    ("账号历史", "购买、许可、徽章记录", ["steam_purchase_history", "steam_badges"]),
     ("内容", "新闻、评测", ["steam_news", "steam_reviews"]),
     ("网易 BUFF", "第三方市场行情", [
         "steam_buff_login", "steam_buff_status", "steam_buff_logout", "steam_buff_search", "steam_buff_price",

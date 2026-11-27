@@ -95,12 +95,12 @@ is_installed = lambda d: bool(int(d.get("StateFlags") or 0) & 4)
 
 | 工具 | 输出 | 数据来源 |
 |---|---|---|
-| `steam_playtime_stats` | 总时长、Top 20、近两周、**吃灰榜**（有库无时长）、按发行商/类型聚合 | 现有 `owned games` |
-| `steam_library_diff` | 两人共同游戏、各自独有、共同游戏总时长 | 两次 `owned games` |
-| `steam_deals` | 愿望单折扣（按折扣率/绝对降价排序）、全站特惠、0 元限免、阈值过滤 | `search/results/?specials=1`（已实测）+ 现有愿望单 |
-| `steam_app_extras` | Deck 等级（Verified/Playable/Unsupported + 未通过项）、截图/预告片/封面/hero 资源、云存档/远程同乐/手柄支持 | `ajaxgetdeckappcompatibilityreport`（已实测）+ `appdetails` |
-| `steam_price_watch` | 关注列表价格快照 + 与上次快照的 diff | 本地 `data/price_snapshots.json`，幂等 |
-| `steam_achievement_hunter` | 全库完美度排行、"再拿 N 个就全成就" | 逐 app 查，需限速队列 |
+| `steam_playtime_stats` ✅ | 总时长、Top 20、近两周、**吃灰榜**（有库无时长）、按发行商/类型聚合 | 现有 `owned games` |
+| `steam_library_diff` ✅ | 两人共同游戏、各自独有、共同游戏总时长 | 两次 `owned games` |
+| `steam_deals` ✅ | 愿望单折扣（按折扣率/绝对降价排序）、全站特惠、0 元限免、阈值过滤 | `search/results/?specials=1`（已实测）+ 现有愿望单 |
+| `steam_app_extras` ✅ | Deck 等级（Verified/Playable/Unsupported + 未通过项）、截图/预告片/封面/hero 资源、云存档/远程同乐/手柄支持 | `ajaxgetdeckappcompatibilityreport`（已实测）+ `appdetails` |
+| `steam_price_watch` ✅ | 关注列表价格快照 + 与上次快照的 diff | 本地 `data/price_snapshots.json`，幂等 |
+| `steam_achievement_hunter` ✅ | 全库完美度排行、"再拿 N 个就全成就" | 逐 app 查，需限速队列（见 7.8） |
 
 ### 3.1 折扣雷达的实测坑
 
@@ -130,17 +130,16 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 
 | 工具 | 端点 | 风险 |
 |---|---|---|
-| `steam_market_listings` | `GET /market/mylistings/?norender=1` | 只读 |
-| `steam_market_history` | `GET /market/history`（HTML 解析 `g_rgHistory`） | 只读 |
-| `steam_inventory_value` | 现有 inventory + 批量 market price | 只读，但受市场限速约束，必须 `top_n` 限制 |
-| `steam_badges` | `GET /my/badges?l=schinese` | 只读 |
-| `steam_notifications` | `GET /actions/ajaxgetusernotifications` | 只读 |
-| `steam_tradeoffers` | `GET /tradeoffers/`、`/tradeoffer/<id>/` | 列表只读；accept/decline 需 confirm + allow_sensitive |
-| `steam_purchase_history` | `GET /account/licenses/` | 只读 |
-| `steam_market_sell` | `POST /market/sellitem/` | 写入，见 4.1 |
+| `steam_market_listings` ✅ | `GET /market/mylistings/?norender=1` | 只读 |
+| `steam_market_history` ✅ | `GET /market/actions?q=QueryMyHistory`（见 7.8） | 只读 |
+| `steam_inventory_value` ✅ | 现有 inventory + 批量 market price | 只读，受市场限速约束，必须 `top_n` 限制 |
+| `steam_badges` ✅ | `/id/<vanity>/badges`（见 7.8） | 只读 |
+| `steam_notifications` | `GET /actions/ajaxgetusernotifications` | 只读（暂缓，见 7.5） |
+| `steam_tradeoffers` | `GET /tradeoffers/`、`/tradeoffer/<id>/` | 列表只读；accept/decline 需 confirm + allow_sensitive（不做） |
+| `steam_purchase_history` ✅ | `GET /account/licenses/` | 只读 |
+| `steam_market_sell` | `POST /market/sellitem/` | 写入，明确不做（见 7.2） |
 
-> 这些端点基于 Steam 网页既有接口，**尚未逐个实测**（当前会话未登录探测）。
-> 实现第一步应加一个只读 `steam_probe(url)` 开发工具，先把页面结构确认下来再写解析。
+> 除 `steam_notifications` 与写操作外，其余端点均已在 2026-11-26 实测通过（见 7.8）。
 
 ### 4.1 市场"上架"的特殊设计
 
@@ -176,14 +175,12 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 
 ## 6. 架构层改进（比加功能更重要）
 
-1. **读缓存**：`appdetails` 批量结果按 appid 缓存 10 分钟到 `data/cache/`。
-   现在市场估值、成就扫描这类批量任务会直接撞上 0.4s/次的限速，缓存能砍掉一半请求。
-2. **批量任务串行队列 + 进度**：community 域 2s/次是硬限制。
-   批量工具应返回 `{"done": 12, "total": 40, "partial": [...]}`，而不是卡死等全量。
-3. **工具分级标注**：在 description 开头统一加 `[只读]` / `[写入]` / `[花钱]`，
-   agent 选工具时不会再误触。
-4. **`evidence` 字段**：每个返回值带 `source_url`、`status`、`fetched_at`，
-   排查"接口回 200 但数据是空的"这类问题时不用重跑。
+1. **读缓存** ✅ `appdetails` 批量结果按 appid 缓存 10 分钟到 `data/cache/appdetails/`（键含 language + cc）。
+   `api._appdetails_raw()` 统一入口，`app_details` 与 `_appdetails_batch` 都走它。
+2. **批量任务串行队列 + 进度** ✅ 工具返回 `{scanned/returned, has_more}`，不卡全量等超时。
+3. **工具分级标注** ✅ 所有工具 description 开头统一 `[只读]` / `[写入]` / `[花钱]`。
+4. **`evidence` 字段** ✅ 新增工具统一带 `{source_url, status, fetched_at}`（`extras._evidence()`）；
+   老工具按需补，不做一次性全量改造。
 
 ---
 
@@ -193,8 +190,8 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 |---|---|---|
 | 第一批 ✅ | `steam_playtime_stats`、`steam_deals`、`steam_app_extras`（+ `steam_deck_compat`） | **已实现**，见 7.1 |
 | 第二批 ✗ | `steam_client_status` + `steam_launch` + `steam_local_library` + `steam_disk_advisor` | **决定不做**（见 §2） |
-| 第三批 | `steam_market_listings` / `market_history` / `badges` / `notifications` | `market_listings` 已做（7.2）；其余按需 |
-| 第四批 | `steam_market_sell`、`steam_tradeoffers` 写操作、2FA 自动确认 | 按需 |
+| 第三批 ✅ | `steam_market_listings` / `market_history` / `badges` / `inventory_value` / `achievement_hunter` | **全部完成**（见 7.2 / 7.8）；仅 `notifications` 暂缓 |
+| 第四批 ✗ | `steam_market_sell`、`steam_tradeoffers` 写操作、2FA 自动确认 | 明确不做（涉 2FA 私钥） |
 
 ### 7.1 第一批实现记录（v1.2.6）
 
@@ -286,6 +283,39 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 - **地区限制**：钱包码必须与账号地区一致（印尼区码充印尼区账号），这是 Steam 侧规则，工具只负责如实报错
 
 测试 `tests/test_redeem_offline.py` 覆盖：短码拒绝 / 未 confirm 不发请求 / allow_sensitive 关闭不发请求 / 成功 / detail 透出 / 验证码透出 / 返回值不含完整码。
+
+### 7.8 第三批剩余四项（v1.4.0）
+
+新增 `steam_mcp/extras.py`，四个只读工具，全部实测通过。
+
+| 工具 | 端点 / 数据源 | 关键实现 |
+|---|---|---|
+| `steam_badges` | `/id/<vanity>/badges` HTML | 解析 `badge_row`：appid、名称、`已收集 X / Y 张卡牌`、`N 点经验值` |
+| `steam_market_history` | `GET /market/actions?q=QueryMyHistory` | `qp=[start,count]`，需 Referer，金额原值透出 |
+| `steam_inventory_value` | inventory + `priceoverview` | 逐件查最低价，`top_n`/`max_price_checks` 限流 |
+| `steam_achievement_hunter` | `GetPlayerAchievements` / 社区成就页 | 按 `remaining` 升序排，`max_apps` 分批 |
+
+两个**必须记住的坑**：
+
+1. **徽章页不能用跟随重定向的结果**。`GET /my/badges` 302 到 `/id/<vanity>/badges`，
+   跟随重定向拿到的 HTML 只有 **34 个徽章**（裁剪版）；单独再请求那个 URL 才有 **72 个**。
+   正确做法：先取 `Location`，再发第二个请求。
+2. **成交历史的 `qp` 参数**：`[0,25]` 会返回 `400 eResult=8`，但 `[0,50]` / `[25,25]` 正常。
+   即 `count=25` 时 `offset` 必须 ≥25。首页一律用 `count=50` 再本地截断。
+   另外缺 `Referer: .../market/history` 也返回 400。
+
+附带的两处架构改动：
+
+- `api._appdetails_raw()`：appdetails 统一走 10 分钟本地缓存（键含 language + cc），
+  `app_details` 与 `_appdetails_batch` 共用，批量任务不再重复打限速。
+- `extras._evidence()`：新工具统一返回 `{source_url, status, fetched_at}`。
+
+`api.achievements()` 的社区页回落分支补了**成就总数解析**
+（`成就：已解锁 X 项，共 Y 项` / `X of Y achievements`），
+所以没有 Web API Key 也能算完美度——之前只能读到已解锁列表。
+
+测试 `tests/test_extras_offline.py` 覆盖：价格字符串解析（含 Rp 千分位）、徽章 HTML 解析、
+成交历史的分页参数与 Referer、估值累加与排序、单件查价失败不拖垮整批。
 
 ### 7.5 通知暂缓
 

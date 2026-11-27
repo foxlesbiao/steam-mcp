@@ -3,7 +3,7 @@
 一个给 AI agent 用的 Steam MCP：登录一次，之后档案、游戏库、愿望单、好友、库存、市场、商店、评测、购物车都能读写，
 另外还有一组「只读分析」工具（游玩时长、折扣雷达、Deck 兼容、库对比、价格快照）和「跨平台比价」（Steam 市场 vs 网易 BUFF、IsThereAnyDeal 历史低价）。
 
-- 当前版本：**v1.3.2，49 个工具**
+- 当前版本：**v1.4.0，53 个工具**
 - 平台：Windows / Linux（纯 Python，无 GUI 依赖）
 - 定位：agent 优先——所有工具结构化返回、明确的 `error` 码 + `hint`、批量任务给进度而不是卡死
 - **明确不做**：市场交易（上架/改价/撤单/接报价）、账号安全设置、本地客户端层
@@ -105,11 +105,11 @@ Steam 校验写操作（加愿望单、加购物车…）时要求 `sessionid` �
 
 **账号与库**：`steam_me` `steam_user_profile` `steam_friends` `steam_library` `steam_recent_games` `steam_achievements`
 
-**重组分析（只读）**：`steam_playtime_stats`（总时长/Top/吃灰榜/久未启动）`steam_deals`（愿望单折扣雷达，30 分钟缓存）`steam_app_extras` `steam_deck_compat`（Deck 兼容等级）`steam_library_diff`（两人库对比）`steam_price_watch`（价格快照 diff）
+**重组分析（只读）**：`steam_playtime_stats`（总时长/Top/吃灰榜/久未启动）`steam_deals`（愿望单折扣雷达，30 分钟缓存）`steam_app_extras` `steam_deck_compat`（Deck 兼容等级）`steam_library_diff`（两人库对比）`steam_price_watch`（价格快照 diff）`steam_achievement_hunter`（全库成就完美度，「再拿 N 个就全成就」）
 
-**市场只读**：`steam_market_listings`（在售挂单，只读，不含买卖）`steam_market_compare`（Steam 市场 vs 网易 BUFF 同款最低价）
+**市场只读**：`steam_market_listings`（在售挂单，只读，不含买卖）`steam_market_history`（成交历史，分页）`steam_inventory_value`（库存估值，逐件查市场最低价）`steam_market_compare`（Steam 市场 vs 网易 BUFF 同款最低价）
 
-**账号历史**：`steam_purchase_history`（许可/购买记录，分页）
+**账号历史**：`steam_purchase_history`（许可/购买记录，分页）`steam_badges`（徽章与卡牌进度）
 
 **价格历史（ITAD）**：`steam_price_history`（历史最低价/折扣/店铺/时间点）`steam_itad_key`（配置免费 API key）
 

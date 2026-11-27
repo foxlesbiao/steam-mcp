@@ -13,11 +13,11 @@ from typing import Any
 
 from mcp.server import MCPServer
 
-from . import api, auth, buff, checkout, config, freelicense, generic, http, insights, secrets
+from . import api, auth, buff, checkout, config, extras, freelicense, generic, http, insights, secrets
 
 mcp = MCPServer(
     name="steam",
-    version="1.3.2",
+    version="1.4.0",
     instructions=(
         "Steam 账号能力的通用 MCP。首次使用先 steam_auth_status；未登录则用 steam_auth_import_cookie"
         "（推荐）或 steam_auth_login。密码登录返回 awaiting_confirmation 时，先 steam_auth_poll 等待手机 App / 邮箱确认"
@@ -330,6 +330,66 @@ def steam_price_watch(user: str = "", commit: bool = False, limit: int = 30) -> 
 def steam_purchase_history(limit: int = 50, offset: int = 0) -> dict[str, Any]:
     auth.require_login()
     return insights.purchase_history(limit=limit, offset=offset)
+
+
+@mcp.tool(description=(
+    "[只读] 我的徽章进度：每款游戏的卡牌收集数、可合成状态、经验值。"
+    "需要登录；来自社区徽章页 HTML 解析，不额外消耗接口配额。"
+))
+@_safe
+def steam_badges(limit: int = 0) -> dict[str, Any]:
+    auth.require_login()
+    return extras.badges(limit=limit or None)
+
+
+@mcp.tool(description=(
+    "[只读] 我的市场成交历史（买入/卖出的完成记录）。"
+    "count 只接受 25 或 50；offset 按 25 递增，返回 has_more 表示还能翻页。"
+    "金额给最小货币单位原值，不替你换算汇率。"
+))
+@_safe
+def steam_market_history(limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    auth.require_login()
+    return extras.market_history(limit=limit, offset=offset)
+
+
+@mcp.tool(description=(
+    "[只读] 库存估值：按当前市场最低挂单价汇总。"
+    "市场域 2s/次限速，用 top_n / max_price_checks 控制规模，返回 has_more。"
+    "est_total 是按最低挂单价累加，不等于立刻能卖出的金额（有手续费与流动性）。"
+))
+@_safe
+def steam_inventory_value(
+    top_n: int = 30,
+    appid: int = 753,
+    contextid: str = "6",
+    currency: str = "CNY",
+    max_price_checks: int = 0,
+) -> dict[str, Any]:
+    return extras.inventory_value(
+        top_n=top_n,
+        appid=appid,
+        contextid=contextid,
+        currency=currency,
+        max_price_checks=max_price_checks or None,
+    )
+
+
+@mcp.tool(description=(
+    "[只读] 全库成就完美度排行：找出「再拿 N 个就全成就」的游戏。"
+    "逐游戏查询，max_apps 控制本轮扫描量（默认 60），返回 has_more 提示继续。"
+    "无 Web API Key 时拿不到成就总数，会带 warnings 说明。"
+))
+@_safe
+def steam_achievement_hunter(
+    limit: int = 10,
+    min_percent: float = 0.0,
+    max_apps: int = 60,
+    user: str = "",
+) -> dict[str, Any]:
+    return extras.achievement_hunter(
+        limit=limit, min_percent=min_percent, max_apps=max_apps, value=user or None
+    )
 
 
 @mcp.tool(description=(

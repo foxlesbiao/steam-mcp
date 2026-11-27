@@ -1,7 +1,7 @@
 # 工具总览
 
 > 自动生成，勿手改。重新生成：`python3 scripts/gen_tools_doc.py > TOOLS.md`
-> 当前版本 **v1.3.2**，共 **49** 个工具。
+> 当前版本 **v1.4.0**，共 **53** 个工具。
 >
 > 参数列里带 `?` 的是可选参数。所有工具都返回 JSON 对象，失败时带 `error` 码与 `hint`，
 > 不抛裸异常。写操作与花钱操作在说明开头标了 `[写入]` / `[花钱]`。
@@ -84,7 +84,7 @@
 
 ## 市场（只读）
 
-行情、我的挂单、跨平台比价
+行情、我的挂单、成交历史、库存估值、跨平台比价
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
@@ -92,11 +92,13 @@
 | `steam_market_price` | `appid`，`hash_name`，`currency?`=CNY | 查单件市场物品的最低/中位价与成交量。hash_name 必须与市场名称完全一致（含磨损、StatTrak 等前缀）。 |
 | `steam_market_search` | `appid`，`query?`，`limit?`=10 | 在市场里搜索物品，返回挂单价与在售数量。 |
 | `steam_market_listings` | `limit?`=50 | [只读] 我当前的市场在售挂单（价格/手续费/状态/待确认数）。只读视图，不含上架、改价、撤单等交易动作。 |
+| `steam_market_history` | `limit?`=50，`offset?`=0 | [只读] 我的市场成交历史（买入/卖出的完成记录）。count 只接受 25 或 50；offset 按 25 递增，返回 has_more 表示还能翻页。金额给最小货币单位原值，不替你换算汇率。 |
+| `steam_inventory_value` | `top_n?`=30，`appid?`=753，`contextid?`=6，`currency?`=CNY，`max_price_checks?`=0 | [只读] 库存估值：按当前市场最低挂单价汇总。市场域 2s/次限速，用 top_n / max_price_checks 控制规模，返回 has_more。est_total 是按最低挂单价累加，不等于立刻能卖出的金额（有手续费与流动性）。 |
 | `steam_market_compare` | `hash_name`，`appid?`=730，`game?`=csgo | [只读] 同一件饰品在 Steam 市场与网易 BUFF 的最低价对比（人民币口径）。BUFF 需先 steam_buff_login；两侧都取不到会如实返回 error。 |
 
 ## 分析与价格
 
-折扣雷达、Deck 兼容、价格快照、历史低价
+折扣雷达、Deck 兼容、价格快照、历史低价、成就完美度
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
@@ -106,14 +108,16 @@
 | `steam_price_watch` | `user?`，`commit?`=False，`limit?`=30 | [只读] 愿望单价格变动：基于 steam_deals 缓存做快照对比，不发额外请求。commit=true 会把当前价格存为新基线（默认只读）。 |
 | `steam_price_history` | `appid`，`country?`=CN | [只读] 某游戏的历史最低价（IsThereAnyDeal）。返回最低价、折扣、店铺、时间点与 ITAD 链接。country 用 ISO 两位码（CN/ID/US），默认 CN。未配置 key 时返回 itad_key_missing。 |
 | `steam_itad_key` | `key?` | 配置 IsThereAnyDeal API key（历史最低价数据源，SteamDB 的合规替代）。去 https://isthereanydeal.com/apps/my/ 注册应用获取；传空字符串清除。 |
+| `steam_achievement_hunter` | `limit?`=10，`min_percent?`=0.0，`max_apps?`=60，`user?` | [只读] 全库成就完美度排行：找出「再拿 N 个就全成就」的游戏。逐游戏查询，max_apps 控制本轮扫描量（默认 60），返回 has_more 提示继续。无 Web API Key 时拿不到成就总数，会带 warnings 说明。 |
 
 ## 账号历史
 
-购买与许可记录
+购买、许可、徽章记录
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
 | `steam_purchase_history` | `limit?`=50，`offset?`=0 | [只读] 账号许可/购买记录（日期、名称、来源）。分页用 offset/limit。 |
+| `steam_badges` | `limit?`=0 | [只读] 我的徽章进度：每款游戏的卡牌收集数、可合成状态、经验值。需要登录；来自社区徽章页 HTML 解析，不额外消耗接口配额。 |
 
 ## 内容
 

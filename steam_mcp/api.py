@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html as html_lib
 import json
+import os
 import re
 import socket
 import time
@@ -332,25 +333,59 @@ def _owned_appids(steamid: str) -> list[int] | None:
     return None
 
 
+APP_CACHE_TTL = 600  # appdetails 缓存 10 分钟：批量任务（deal 扫描/库存估值）能砍掉大量重复请求
+
+
+def _app_cache_path(appid: int | str) -> str:
+    d = str(config.home_dir() / "cache" / "appdetails")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, f"{_lang()}_{_cc()}_{appid}.json")
+
+
+def _appdetails_raw(appid: int | str) -> dict[str, Any] | None:
+    """取单个 appdetails 的 data 节点，带 10 分钟本地缓存。
+
+    缓存键带 language + cc：同一 appid 在不同区/语言下价格与描述不同，不能共用。
+    """
+    path = _app_cache_path(appid)
+    try:
+        if time.time() - os.path.getmtime(path) < APP_CACHE_TTL:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError):
+        pass
+
+    try:
+        resp = http.get_json(
+            f"{STORE}/api/appdetails",
+            params={"appids": str(appid), "l": _lang(), "cc": _cc()},
+        )
+    except http.SteamError:
+        return None
+    node = resp.get(str(appid)) if isinstance(resp, dict) else None
+    if not isinstance(node, dict) or not node.get("success"):
+        return None
+    data = node.get("data") or {}
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass  # 缓存写不进去不影响主流程
+    return data
+
+
 def _appdetails_batch(appids: list[int]) -> dict[int, dict[str, Any]]:
     """appdetails 只接受单个 appid（逗号批量会 400），只能逐个取。
 
-    有限速（store 0.4s/次），几十个 appid 大概十几秒，调用方记得控制数量。
+    命中 10 分钟缓存时不发请求；未命中的仍受 store 0.4s/次限速。
     """
     out: dict[int, dict[str, Any]] = {}
     for appid in appids[:60]:  # 硬上限，防止大列表把限速打满
-        try:
-            resp = http.get_json(
-                f"{STORE}/api/appdetails",
-                params={"appids": str(appid), "l": _lang(), "cc": _cc()},
-            )
-        except http.SteamError:
-            continue
-        if not isinstance(resp, dict):
-            continue
-        node = resp.get(str(appid))
-        if isinstance(node, dict) and node.get("success"):
-            out[appid] = node.get("data", {})
+        data = _appdetails_raw(appid)
+        if data:
+            out[appid] = data
     return out
 
 
@@ -484,15 +519,9 @@ def store_search(term: str, limit: int = 15) -> dict[str, Any]:
 
 
 def app_details(appid: int | str, *, include_raw: bool = False) -> dict[str, Any]:
-    key = str(appid)
-    resp = http.get_json(
-        f"{STORE}/api/appdetails",
-        params={"appids": key, "l": _lang(), "cc": _cc()},
-    )
-    node = resp.get(key) if isinstance(resp, dict) else None
-    if not node or not node.get("success"):
+    d = _appdetails_raw(appid)  # 10 分钟缓存，见 _appdetails_raw
+    if not d:
         raise http.Rejected(f"查不到 appid={appid} 的商店信息。", code="not_found")
-    d = node["data"]
     brief = {
         "appid": d.get("steam_appid"),
         "name": d.get("name"),
@@ -748,19 +777,38 @@ def achievements(appid: int, value: str | None = None, limit: int = 40) -> dict[
         page,
     )
     unlocked = [{"internal_key": int(k), "unlock_time": int(t) if t else None} for k, flag, t in found if flag == "true"]
-    return {
+
+    # 社区页其实带总数，只是散在两种文案里：
+    #   中文「成就：已解锁 1 项，共 1 项」/「1 项成就已解锁，共 1 项（占 100%）」
+    #   英文「1 of 1 achievements unlocked」
+    total_n, unlocked_n = None, len(unlocked)
+    for pat in (
+        r"已解锁\s*(\d+)\s*项[，,]\s*共\s*(\d+)\s*项",
+        r"(\d+)\s*项成就已解锁[，,]\s*共\s*(\d+)\s*项",
+        r"(\d+)\s+of\s+(\d+)\s+achievements",
+    ):
+        m = re.search(pat, page)
+        if m:
+            unlocked_n, total_n = int(m.group(1)), int(m.group(2))
+            break
+
+    out: dict[str, Any] = {
         "ok": True,
         "steamid": steamid,
         "appid": appid,
         "source": "community_page",
-        "total": None,
-        "unlocked": len(unlocked),
+        "total": total_n,
+        "unlocked": unlocked_n,
         "achievements": unlocked[:limit],
-        "warnings": [
-            "无 Web API Key 时只能读到已解锁列表（成就名/总数需要 key）。"
-            "去 https://steamcommunity.com/dev/apikey 申请后 steam_config_set(webapi_key=\"...\")。"
-        ],
     }
+    if total_n:
+        out["percent"] = round(unlocked_n / total_n * 100, 1)
+    else:
+        out["warnings"] = [
+            "页面里没解析到成就总数（可能该游戏无成就或页面改版）；"
+            "精确数据需 Web API Key：steam_config_set(webapi_key=\"...\")。",
+        ]
+    return out
 
 
 def inventory(steamid: str | None = None, appid: int = 753, contextid: str = "6", limit: int | None = None) -> dict[str, Any]:
@@ -787,6 +835,7 @@ def inventory(steamid: str | None = None, appid: int = 753, contextid: str = "6"
                 "assetid": asset.get("assetid"),
                 "appid": asset.get("appid"),
                 "name": d.get("name"),
+                "market_hash_name": d.get("market_hash_name"),
                 "type": d.get("type"),
                 "marketable": d.get("marketable"),
                 "tradable": d.get("tradable"),
