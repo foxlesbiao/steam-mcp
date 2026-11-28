@@ -972,6 +972,19 @@ def renew_status() -> dict[str, Any]:
 
 
 def logout() -> dict[str, Any]:
+    # webapi_key / itad_key 是账号级 API 凭证，跟登录会话没有关系：
+    # 登出之后再登回来，它们依然有效，没有理由让用户重新去申请一次。
+    data = state()
+    preserved = {k: data[k] for k in ("webapi_key", "itad_key") if data.get(k)}
     removed = secrets.clear_credentials()
+    if preserved:
+        fresh = state()
+        fresh.update(preserved)
+        secrets.save_credentials(fresh)
     _ensure_cache.update({"checked_at": 0.0, "valid": False})
-    return {"ok": True, "removed": removed}
+    return {
+        "ok": True,
+        "removed": removed,
+        "kept": sorted(preserved.keys()),
+        "note": "webapi_key / itad_key 已保留（不属于登录态），重新登录后无需重新申请。",
+    }
