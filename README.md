@@ -208,12 +208,12 @@ Steam 校验写操作（加愿望单、加购物车…）时要求 `sessionid` �
 
 | 限制 | 表现 | 说明 |
 |---|---|---|
-| `steam_market_search` 不可用 | 返回 `error: market_search_retired` | Steam 已下线 `/market/search/render/`，所有参数组合都 404，无替代接口。按关键词搜饰品请用 `steam_buff_search` |
 | `steam_wishlist_edit` 可能返回 `success:false` | `error: wishlist_noop` | 不是故障。三种情况会这样：已在愿望单 / 已拥有 / remove 时本来就不在。先查状态再判断 |
 | `/dev/apikey` 会限流 | `error: rate_limited` | 不是"没注册 key"。等 10-30 分钟再试 |
 | `steam_auth_logout` 会删掉 refresh token | 之后 `steam_auth_refresh` 返回 `no_refresh_token` | 无法静默恢复，只能重新登录或导 cookie |
 | ITAD 的历史低价跨全部商店 | `low.shop` 可能是 Epic/GOG | Steam 钱包买不到那些价。只有 `shop == "Steam"` 才算 Steam 史低 |
 | `steamcommunity.com` 国内需反代 | DNS 污染 | 见上面「网络这块」 |
+| `steam_market_search` 依页面结构解析 | 结构变了报 `market_search_parse_failed` | Steam 新版把结果做成服务端直出的 React 页面，数据在 `<script>` 的 `renderContext.queryData` 里。如果某天报这个错，说明 Steam 又改版了 |
 
 ## 出错了怎么查
 

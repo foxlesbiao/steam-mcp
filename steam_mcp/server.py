@@ -18,7 +18,7 @@ from . import api, auth, buff, checkout, config, extras, freelicense, generic, h
 
 mcp = MCPServer(
     name="steam",
-    version="1.4.1",
+    version="1.4.2",
     instructions=(
         "Steam 账号能力的通用 MCP。首次使用先 steam_auth_status；未登录则用 steam_auth_import_cookie"
         "（推荐）或 steam_auth_login。密码登录返回 awaiting_confirmation 时，先 steam_auth_poll 等待手机 App / 邮箱确认"
@@ -588,7 +588,12 @@ def steam_market_price(appid: int, hash_name: str, currency: str = "CNY") -> dic
     return api.market_price(appid, hash_name, currency)
 
 
-@mcp.tool(description="在市场里搜索物品，返回挂单价与在售数量。")
+@mcp.tool(
+    description=(
+        "在市场里按关键词搜索物品，返回每个结果的完整 market_hash_name、在售数量、最低价。"
+        "搜到名字后可以直接拿 hash_name 去 steam_market_price 查精确价格。"
+    )
+)
 @_safe
 def steam_market_search(appid: int, query: str = "", limit: int = 10) -> dict[str, Any]:
     return api.market_search(appid, query, limit=limit)

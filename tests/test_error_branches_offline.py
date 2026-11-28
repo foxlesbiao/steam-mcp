@@ -68,21 +68,27 @@ def test_apikey_no_key() -> None:
         auth.http.request, auth.require_login = orig_req, orig_login
 
 
-def test_market_search_404() -> None:
-    """接口下线必须报 market_search_retired，而不是裸 bad_payload。"""
+def test_market_search_parse_failed() -> None:
+    """页面结构变了要报 market_search_parse_failed，不能静默返回空。"""
     from steam_mcp import api
 
-    orig = api.http.get_json
-    api.http.get_json = lambda *a, **k: (_ for _ in ()).throw(
-        FakeError("接口返回的不是 JSON（HTTP 404）：'<html>'", code="bad_payload")
-    )
+    orig = api._market_search_pages
+    api._market_search_pages = lambda _html: None
+    orig_req, orig_ck, orig_login = api.http.request, api.auth.cookies_for, api.auth.require_login
+    api.auth.require_login = lambda: None
+    api.auth.cookies_for = lambda *a: {}
+    api.http.request = lambda *a, **k: FakeResp(200, "<html>no data</html>")
     try:
-        r = api.market_search(730, "AK-47", 3)
-        check("market_search 404 → error=market_search_retired", r.get("error") == "market_search_retired")
-        check("market_search 404 → ok=False", r.get("ok") is False)
-        check("market_search 404 → 给出替代方案", "steam_market_price" in r.get("hint", ""))
+        try:
+            api.market_search(730, "AK-47", 3)
+            check("market_search 解析失败 → 抛 SteamError", False)
+        except http.SteamError as exc:
+            check("market_search 解析失败 → 抛 SteamError", True)
+            check("market_search 解析失败 → code=market_search_parse_failed", exc.code == "market_search_parse_failed")
+            check("market_search 解析失败 → 带替代方案", "steam_market_price" in (exc.hint or ""))
     finally:
-        api.http.get_json = orig
+        api._market_search_pages = orig
+        api.http.request, api.auth.cookies_for, api.auth.require_login = orig_req, orig_ck, orig_login
 
 
 def test_wishlist_rejected() -> None:
@@ -120,7 +126,7 @@ def test_wishlist_rejected() -> None:
 
 
 if __name__ == "__main__":
-    for fn in (test_apikey_429, test_apikey_no_key, test_market_search_404, test_wishlist_rejected):
+    for fn in (test_apikey_429, test_apikey_no_key, test_market_search_parse_failed, test_wishlist_rejected):
         print(f"\n[{fn.__name__}]")
         fn()
     print(f"\n结果：{len(FAIL)} 个失败 / {len(PASS)} 个通过")

@@ -888,46 +888,111 @@ def market_price(appid: int, hash_name: str, currency: str = "CNY") -> dict[str,
 
 
 def market_search(appid: int, query: str = "", limit: int = 10) -> dict[str, Any]:
-    try:
-        resp = http.get_json(
-            f"{COMMUNITY}/market/search/render/",
-            params={
-                "query": query,
-                "start": 0,
-                "count": limit,
-                "search_descriptions": 0,
-                "sort_column": "popular",
-                "sort_dir": "desc",
-                "appid": appid,
-                "norender": 1,
-            },
-            cookies=auth.cookies_for("steamcommunity.com"),
+    """市场搜索。Steam 新版把结果做成服务端直出的 React Router 页面，
+    数据埋在 script 标签的 renderContext.queryData 里，老的 /market/search/render/ 已 404。
+
+    解析路径：renderContext → queryData(JSON 字符串) → queries[] → 找 queryKey 含
+    "marketsearch" 那条 → state.data.pages[].results[]。
+    不写死索引：queries 的顺序随页面功能变动，按 key 找才稳。
+    """
+    resp = http.request(
+        "GET",
+        f"{COMMUNITY}/market/search",
+        params={"appid": appid, "q": query},
+        cookies=auth.cookies_for("steamcommunity.com"),
+    )
+    if resp.status != 200:
+        raise http.Rejected(f"市场搜索返回 HTTP {resp.status}", code="bad_payload")
+
+    pages = _market_search_pages(resp.text)
+    if pages is None:
+        raise http.SteamError(
+            "市场搜索页里没找到结果数据，页面结构可能又变了。",
+            code="market_search_parse_failed",
+            hint="按已知 hash_name 查价用 steam_market_price；按关键词搜物品用 steam_buff_search。",
         )
-    except http.SteamError as exc:
-        # 2026-11 起 /market/search/render/ 对所有参数组合都返回 404 HTML，
-        # Steam 没给替代的公开接口。直接说清楚，别让调用方以为是自己参数写错了。
-        if exc.code == "bad_payload" and "404" in str(exc):
-            return {
-                "ok": False,
-                "error": "market_search_retired",
-                "appid": appid,
-                "hint": "搜索接口 /market/search/render/ 已被 Steam 下线（404）。改用 steam_market_price（需完整 market_hash_name）或 steam_buff_search（按关键词）。",
-            }
-        raise
+
     results = []
-    for r in (resp.get("results") or [])[:limit]:
-        sell = r.get("sell_price")
-        results.append(
-            {
-                "hash_name": r.get("hash_name"),
-                "name": r.get("name"),
-                "sell_listings": r.get("sell_listings"),
-                "sell_price": _price(sell) if isinstance(sell, int) else sell,
-                "sell_price_cents": sell,
-                "icon": r.get("asset_description", {}).get("icon_url") if isinstance(r.get("asset_description"), dict) else None,
-            }
-        )
-    return {"ok": True, "appid": appid, "total": resp.get("total_count"), "items": results}
+    total = None
+    for page in pages:
+        if total is None:
+            total = page.get("total_count")
+        for item in page.get("results") or []:
+            if len(results) >= limit:
+                break
+            desc = item.get("asset_description") or {}
+            results.append(
+                {
+                    "hash_name": item.get("strHash"),
+                    "name": desc.get("market_name") or item.get("strHash"),
+                    "sell_listings": item.get("cSellOrders"),
+                    "buy_orders": item.get("cBuyOrders"),
+                    "sell_price": item.get("strMinSellSubtotal"),
+                    "currency_id": item.get("eCurrency"),
+                    "icon": desc.get("icon_url"),
+                }
+            )
+        if len(results) >= limit:
+            break
+
+    return {"ok": True, "appid": appid, "query": query, "total": total, "items": results}
+
+
+def _market_search_pages(page_html: str) -> list[dict[str, Any]] | None:
+    """从市场搜索页里抠出 results pages。拆成独立函数方便离线测。"""
+    scripts = re.findall(r"<script[^>]*>(.*?)</script>", page_html, re.S)
+    for raw in scripts:
+        raw = raw.strip()
+        if not raw.startswith("{"):
+            continue
+        try:
+            root = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        hit = _find_market_search_pages(root)
+        if hit is not None:
+            return hit
+    return None
+
+
+def _find_market_search_pages(node: Any, depth: int = 0) -> list[dict[str, Any]] | None:
+    """递归找带 marketsearch queryKey 的 pages。
+
+    TanStack Query 的 dehydrated state 里，data 可能被多层 JSON 字符串包裹，
+    所以遇到字符串先尝试解一层再继续钻。
+    """
+    if depth > 12:
+        return None
+    if isinstance(node, str):
+        s = node.strip()
+        if not s:
+            return None
+        # data 可能被多层 json.dumps 包过，外层是带引号的字符串：
+        # json.dumps(json.dumps({...})) 解一次得到的还是字符串。
+        # 所以要认 {"[" 三种开头，解出来的仍是 str 就继续递归。
+        if s[0] in '{["':
+            try:
+                return _find_market_search_pages(json.loads(s), depth + 1)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
+    if isinstance(node, dict):
+        key = node.get("queryKey")
+        # queryKey 形如 ["market_search", {...}]。注意是下划线，不是 marketsearch。
+        if key is not None and "market_search" in str(key).replace("\\", ""):
+            data = (node.get("state") or {}).get("data") or node.get("data")
+            if isinstance(data, dict) and isinstance(data.get("pages"), list):
+                return data["pages"]
+        for value in node.values():
+            hit = _find_market_search_pages(value, depth + 1)
+            if hit is not None:
+                return hit
+    elif isinstance(node, list):
+        for value in node:
+            hit = _find_market_search_pages(value, depth + 1)
+            if hit is not None:
+                return hit
+    return None
 
 
 def news(appid: int, count: int = 5) -> dict[str, Any]:

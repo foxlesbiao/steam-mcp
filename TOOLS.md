@@ -1,7 +1,7 @@
 # 工具总览
 
 > 自动生成，勿手改。重新生成：`python3 scripts/gen_tools_doc.py > TOOLS.md`
-> 当前版本 **v1.4.1**，共 **53** 个工具。
+> 当前版本 **v1.4.2**，共 **53** 个工具。
 >
 > 参数列里带 `?` 的是可选参数。所有工具都返回 JSON 对象，失败时带 `error` 码与 `hint`，
 > 不抛裸异常。写操作与花钱操作在说明开头标了 `[写入]` / `[花钱]`。
@@ -90,7 +90,7 @@
 |---|---|---|
 | `steam_inventory` | `steamid?`，`appid?`=753，`contextid?`=6，`limit?`=30 | 查库存。默认 appid=753（Steam 社区物品，contextid=6）；查 CS2 用 730/2，Dota2 用 570/2，TF2 用 440/2。需登录且库存公开。 |
 | `steam_market_price` | `appid`，`hash_name`，`currency?`=CNY | 查单件市场物品的最低/中位价与成交量。hash_name 必须与市场名称完全一致（含磨损、StatTrak 等前缀）。 |
-| `steam_market_search` | `appid`，`query?`，`limit?`=10 | 在市场里搜索物品，返回挂单价与在售数量。 |
+| `steam_market_search` | `appid`，`query?`，`limit?`=10 | 在市场里按关键词搜索物品，返回每个结果的完整 market_hash_name、在售数量、最低价。搜到名字后可以直接拿 hash_name 去 steam_market_price 查精确价格。 |
 | `steam_market_listings` | `limit?`=50 | [只读] 我当前的市场在售挂单（价格/手续费/状态/待确认数）。只读视图，不含上架、改价、撤单等交易动作。 |
 | `steam_market_history` | `limit?`=50，`offset?`=0 | [只读] 我的市场成交历史（买入/卖出的完成记录）。count 只接受 25 或 50；offset 按 25 递增，返回 has_more 表示还能翻页。金额给最小货币单位原值，不替你换算汇率。 |
 | `steam_inventory_value` | `top_n?`=30，`appid?`=753，`contextid?`=6，`currency?`=CNY，`max_price_checks?`=0 | [只读] 库存估值：按当前市场最低挂单价汇总。市场域 2s/次限速，用 top_n / max_price_checks 控制规模，返回 has_more。est_total 是按最低挂单价累加，不等于立刻能卖出的金额（有手续费与流动性）。 |
