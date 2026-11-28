@@ -330,3 +330,110 @@ GET https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?
 3. **不泄密**：返回值与日志里不出现 cookie、token、key 明文，只给 `len=… sha256:…` 指纹。
 4. **可离线测**：像 `tests/test_checkout_offline.py` 一样，纯解析逻辑用 mock 数据覆盖，不联网即可跑。
 5. **文档同步**：README「工具清单」补一行，本文档对应条目改成「已实现 vX.Y.Z」。
+
+---
+
+## 9. 2026-11 全量测试与修复记录（v1.4.0 → v1.4.4）
+
+一次覆盖 53 个工具的全量测试，修掉 6 个问题，也推翻了此前两轮的错误结论。
+这里只留**下次能直接用的事实**，过程略。
+
+### 9.1 三个「端点挂了但功能还在」的案例
+
+这是本轮最重要的发现。**302/404 只能证明某个 URL 没了，不能证明功能没了。**
+
+| 功能 | 旧端点 | 实际状态 | 新做法 |
+|---|---|---|---|
+| 市场搜索 | `/market/search/render/` 全参数 404 | 改为服务端直出 | 抓 `/market/search?appid=&q=` 的 HTML，读 `<script>` 里 `renderContext.queryData` 的 TanStack Query 缓存，`queryKey` 含 `market_search` 的那条 |
+| 评测 | `/appreviews/<id>?json=1` 一律 302 回首页 | 换了 URL | `/ajaxappreviews/<id>`，需固定一组参数（`cursor=*` 等），返回 `reviews[]` + `cursor` |
+| 充值码兑换 | 页面表单 | 藏起来 | `/account/ajaxredeemwalletcode`，从 `redeemwalletcode.js` 里 grep 出来 |
+
+**市场搜索的两个坑**：
+1. `queryKey` 是 `"market_search"`（带下划线），不是 `"marketsearch"`
+2. `queryData` 可能被双重 `json.dumps`，解一层得到的还是字符串（首字符是 `"`），要一直递归到 dict
+
+**评测的总数口径变了**：CS2 新端点报 10,005,075 条，商店页摘要显示 1,425,324。
+新端点算全部（含免费周末、被折叠的），页面摘要做了过滤。**两个都是真的，不要取平均。**
+
+### 9.2 被推翻的错误结论（重要）
+
+**错误一：`wishlist_edit` 坏了、Steam 大促禁写**
+
+连错两轮。真相是**接口一直正常**，Steam 对三种情况统一返回 `{"success":false,"wishlistCount":N}`：
+
+- add 一个已在愿望单的游戏
+- add 一个已拥有的游戏（已拥有不能加愿望单）
+- remove 一个本来就不在的游戏
+
+**这些是 no-op，不是错误。** 我挑的 5 个测试对象里 3 个在愿望单、2 个已拥有，全部返回 false，就归因到 Steam 故障。
+
+正确测法：先拿 `IWishlistService/GetWishlist` 和 `IPlayerService/GetOwnedGames` 做差集，挑一个**两边都不在**的 appid。实测 `552620` → add `success:true, wishlistCount:344`，remove `success:true, wishlistCount:343`。
+
+**错误二：`/dev/apikey` 返回 has_key:false = 没注册**
+
+实际是 **429 限流**。实现用正则抓 32 位 hex，抓不到就统一报「还没有 Web API Key」。已改成独立判断 429 返回 `error: rate_limited`。
+
+**错误三：`steam_auth_logout` 可以静默恢复**
+
+`auth_logout` 会连 refresh token 一起删，`auth_refresh` 直接报 `no_refresh_token`。
+而且它**连 Web API Key 一起删**，导致重新登录后 `library` 时长全 null、
+`achievement_hunter` 扫描 0 个，报错说「没配 key」，看不出是登出连带删的。
+已修：logout 保留 `webapi_key` / `itad_key`（账号级凭证，与登录态无关）。
+
+### 9.3 从 Linux 控制 Windows 那台的浏览器
+
+有两台机器时，别只在能跑代码的那台上做网络诊断。真实浏览器能拿到：
+真实指纹、真实会话、页面自带的 JS 函数、Network 面板的完整请求头与 postData。
+
+```powershell
+# 同 profile 不能双开，先关再带调试端口重启
+Stop-Process -Name thorium -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 4
+Start-Process "$env:LOCALAPPDATA\Thorium\Application\thorium.exe" `
+  -ArgumentList "--remote-debugging-port=9222","--remote-allow-origins=*","--restore-last-session"
+
+# 只监听 127.0.0.1，加 portproxy 才能跨机连
+netsh interface portproxy add v4tov4 listenport=9222 listenaddress=0.0.0.0 connectport=9222 connectaddress=127.0.0.1
+New-NetFirewallRule -DisplayName "CDP 9222" -Direction Inbound -LocalPort 9222 -Protocol TCP -Action Allow
+```
+
+从 Linux：`curl http://<windows-ip>:9222/json/list`，websocket 地址里的 `127.0.0.1`
+**要换成 Windows 的 IP** 才连得上。脚本：`~/scripts/win_cdp.py`（info/goto/eval）、
+`~/scripts/win_probe_wishlist.py`、`~/scripts/win_capture_market_search.py`。
+
+**判断依据**：Network 面板里 XHR 少得反常（比如只有 3 个）往往意味着数据在 HTML 里，
+不是异步拉的。这个信号比任何猜测都准。
+
+### 9.4 ITAD key 的完整拿法
+
+1. 从 MCP 凭证库导 Steam cookie → CDP 注入 Chrome（`~/scripts/cdp_inject_steam_cookies.py`）
+2. 开 `https://isthereanydeal.com/apps/`（**不是 `/apps/my/`，那个 404**）
+3. Sign in → **Sign in through STEAM** → Steam OpenID 确认页点「登录」
+4. 进已有 app（`2test`，id 6606），点 **Request new key**
+5. `~/scripts/itad_grab_key.py` 抓 `/apps/api/<id>/keys/` 响应的 40 位 hex
+6. **直接 `insights.set_itad_key(key)` 写库**，不走 MCP 工具（避免明文进对话），完事删临时文件
+7. 重启 MCP 才生效（凭证库是启动时加载的）
+
+坑：ITAD 是 React SPA，`/user/login/` 之类直连全 404；`a.click()` 后要等 2-4 秒弹窗才渲染。
+**每次 Request new key 会让旧 key 失效**，别反复点。
+
+### 9.5 测试方法论的教训
+
+**被测对象的「无操作」和「真失败」返回结构相同时，必须先构造一个必定成功的输入拿到对照组。**
+没有对照组，「一次都没成功」既可能是接口坏了，也可能是你挑的样本全都不该成功——
+这两种情况从结果上看不出区别，只会让人在错误的方向上越挖越深。
+
+**另一个教训**：为凑「全量覆盖」去实测 `auth_logout` / `buff_logout`，
+两个都得花时间恢复（前者要导 cookie，后者要重新登录）。这两个工具的正常使用场景是
+「用户主动说要登出」，价值在把登出做对，不是被自动化测一遍。
+报告里标「未测（会改登录态）」比标「已测但你要重新登录」好。
+
+### 9.6 本轮新增的测试
+
+| 文件 | 断言数 | 覆盖 |
+|---|---|---|
+| `test_error_branches_offline.py` | 15 | 429 限流、解析失败、wishlist no-op |
+| `test_prompts_resources_offline.py` | 12 | prompt/resource 注册与渲染 |
+| `test_market_search_parse.py` | 12 | SSR 页面解析、单双层编码、坏 HTML |
+| `test_logout_keeps_keys.py` | 12 | 登出保留 key、重新登录后仍在 |
+| `test_reviews_endpoint.py` | 22 | 新端点路径、必带参数、字段映射、HTML 回落 |
