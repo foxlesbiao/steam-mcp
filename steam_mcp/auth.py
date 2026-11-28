@@ -661,12 +661,23 @@ def fetch_webapi_key() -> dict[str, Any]:
     resp = http.request("GET", f"{COMMUNITY}/dev/apikey", cookies=jar, allow_redirects=True)
     if resp.looks_like_login_page():
         raise NotLoggedIn("apikey 页面要求登录。")
+    # /dev/apikey 限流很凶，429 会返回一个 HTML 错误页。
+    # 不单独判这个的话，下面的正则匹配失败会被当成"账号没注册 key"，把限流误报成配置问题。
+    if resp.status == 429:
+        return {
+            "ok": False,
+            "error": "rate_limited",
+            "has_key": False,
+            "status": 429,
+            "hint": "steamcommunity.com/dev/apikey 返回 429（限流），不是没注册。等 10-30 分钟再试；急需可用浏览器打开该页直接读。",
+        }
     match = re.search(r"(?:密钥|Key)[:：]\s*([0-9A-F]{32})", resp.text)
     if not match:
         return {
             "ok": True,
             "has_key": False,
-            "hint": "账号还没有 Web API Key，可调用 steam_webapi_key(action=\"register\") 注册（会同意 Steam Web API 使用条款）。",
+            "status": resp.status,
+            "hint": "页面正常返回但没有 key 明文：账号确实未注册。调 steam_webapi_key(action=\"register\") 注册（会同意 Steam Web API 使用条款）。",
         }
     key = match.group(1)
     data = state()

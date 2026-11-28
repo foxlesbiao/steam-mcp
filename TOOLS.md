@@ -1,7 +1,7 @@
 # 工具总览
 
 > 自动生成，勿手改。重新生成：`python3 scripts/gen_tools_doc.py > TOOLS.md`
-> 当前版本 **v1.4.0**，共 **53** 个工具。
+> 当前版本 **v1.4.1**，共 **53** 个工具。
 >
 > 参数列里带 `?` 的是可选参数。所有工具都返回 JSON 对象，失败时带 `error` 码与 `hint`，
 > 不抛裸异常。写操作与花钱操作在说明开头标了 `[写入]` / `[花钱]`。
@@ -41,8 +41,8 @@
 | 工具 | 参数 | 说明 |
 |---|---|---|
 | `steam_net_check` | — | 逐域名探测 Steam 各站点可达性，给出 DNS 污染 / 本地反代 / 代理配置的判断和建议。网络异常时先跑这个。 |
-| `steam_config_get` | — | 读取当前配置（网络模式、代理、TLS 信任、语言、国家、敏感操作开关）。 |
-| `steam_config_set` | `network_mode?`，`proxy?`，`tls_trust?`，`language?`，`country?`，`allow_sensitive?`，`webapi_key?`，`max_items?` | 修改配置。常用：network_mode=direct\|env\|custom、proxy=http://127.0.0.1:7890、tls_trust=system\|insecure、language、country、allow_sensitive、webapi_key。传 webapi_key 会加密存进凭证库，不写配置文件。留空表示不改该项。 |
+| `steam_config_get` | — | 读取当前配置（网络模式、代理、TLS 信任、语言、国家、敏感操作开关）。webapi.key 恒为 null——key 加密存在凭证库不在配置文件里，实际状态看 webapi_key_configured。 |
+| `steam_config_set` | `network_mode?`，`proxy?`，`tls_trust?`，`language?`，`country?`，`allow_sensitive?`，`webapi_key?`，`max_items?` | 修改配置。常用：network_mode=direct\|env\|custom、proxy=http://127.0.0.1:7890、tls_trust=system\|insecure、language、country、allow_sensitive、max_items、webapi_key。全部是具名参数（不是 key/value 对，传 {key:..., value:...} 会被忽略且返回 updated:{}）。传 webapi_key 会加密存进凭证库，不写配置文件。留空表示不改该项。 |
 
 ## 档案与社交
 

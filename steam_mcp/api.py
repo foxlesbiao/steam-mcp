@@ -641,7 +641,21 @@ def wishlist_edit(action: str, appid: int) -> dict[str, Any]:
         body = resp.json()
     except http.SteamError:
         body = {"raw": resp.text[:160]}
-    return {"ok": bool(body.get("success", 1)), "action": action, "appid": appid, "response": body}
+    ok = bool(body.get("success"))
+    out: dict[str, Any] = {"ok": ok, "action": action, "appid": appid, "response": body}
+    if not ok:
+        # Steam 返回 200 + success:false 且 wishlistCount 不变，几乎总是这两种「本来就不该改」的情况：
+        #   1. add 一个已在愿望单里的游戏
+        #   2. add 一个已拥有的游戏
+        # 两者都在 Steam 侧静默拒绝，返回结构和「真的失败」一模一样。
+        # 别把它当成 Steam 故障——先查状态，用 IWishlistService/GetWishlist + GetOwnedGames 对照。
+        out["error"] = "wishlist_noop"
+        out["hint"] = (
+            "Steam 返回 200 但 success=false，wishlistCount 未变——通常不是故障，而是这次操作本来就没意义："
+            "add 时该游戏已在愿望单里，或该游戏已拥有（已拥有不能加愿望单）；remove 时它本来就不在。"
+            "先核对现状再重试：GetWishlist 看是否已在愿望单、GetOwnedGames 看是否已拥有。"
+        )
+    return out
 
 
 # ---------------------------------------------------------------- 社区
@@ -874,20 +888,32 @@ def market_price(appid: int, hash_name: str, currency: str = "CNY") -> dict[str,
 
 
 def market_search(appid: int, query: str = "", limit: int = 10) -> dict[str, Any]:
-    resp = http.get_json(
-        f"{COMMUNITY}/market/search/render/",
-        params={
-            "query": query,
-            "start": 0,
-            "count": limit,
-            "search_descriptions": 0,
-            "sort_column": "popular",
-            "sort_dir": "desc",
-            "appid": appid,
-            "norender": 1,
-        },
-        cookies=auth.cookies_for("steamcommunity.com"),
-    )
+    try:
+        resp = http.get_json(
+            f"{COMMUNITY}/market/search/render/",
+            params={
+                "query": query,
+                "start": 0,
+                "count": limit,
+                "search_descriptions": 0,
+                "sort_column": "popular",
+                "sort_dir": "desc",
+                "appid": appid,
+                "norender": 1,
+            },
+            cookies=auth.cookies_for("steamcommunity.com"),
+        )
+    except http.SteamError as exc:
+        # 2026-11 起 /market/search/render/ 对所有参数组合都返回 404 HTML，
+        # Steam 没给替代的公开接口。直接说清楚，别让调用方以为是自己参数写错了。
+        if exc.code == "bad_payload" and "404" in str(exc):
+            return {
+                "ok": False,
+                "error": "market_search_retired",
+                "appid": appid,
+                "hint": "搜索接口 /market/search/render/ 已被 Steam 下线（404）。改用 steam_market_price（需完整 market_hash_name）或 steam_buff_search（按关键词）。",
+            }
+        raise
     results = []
     for r in (resp.get("results") or [])[:limit]:
         sell = r.get("sell_price")

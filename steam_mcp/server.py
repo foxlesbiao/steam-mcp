@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import sys
+from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
@@ -17,7 +18,7 @@ from . import api, auth, buff, checkout, config, extras, freelicense, generic, h
 
 mcp = MCPServer(
     name="steam",
-    version="1.4.0",
+    version="1.4.1",
     instructions=(
         "Steam 账号能力的通用 MCP。首次使用先 steam_auth_status；未登录则用 steam_auth_import_cookie"
         "（推荐）或 steam_auth_login。密码登录返回 awaiting_confirmation 时，先 steam_auth_poll 等待手机 App / 邮箱确认"
@@ -154,17 +155,26 @@ def steam_net_check() -> dict[str, Any]:
     return api.net_check()
 
 
-@mcp.tool(description="读取当前配置（网络模式、代理、TLS 信任、语言、国家、敏感操作开关）。")
+@mcp.tool(description="读取当前配置（网络模式、代理、TLS 信任、语言、国家、敏感操作开关）。webapi.key 恒为 null——key 加密存在凭证库不在配置文件里，实际状态看 webapi_key_configured。")
 @_safe
 def steam_config_get() -> dict[str, Any]:
     cfg = config.load()
-    return {"ok": True, "config_path": str(config.config_path()), "config": cfg}
+    # key 加密存在凭证库，配置文件里永远是 null。只报状态，不回明文。
+    key = (auth.state().get("webapi_key") or "").strip()
+    return {
+        "ok": True,
+        "config_path": str(config.config_path()),
+        "config": cfg,
+        "webapi_key_configured": bool(key),
+        "webapi_key_fingerprint": f"len={len(key)}" if key else None,
+    }
 
 
 @mcp.tool(
     description=(
         "修改配置。常用：network_mode=direct|env|custom、proxy=http://127.0.0.1:7890、"
-        "tls_trust=system|insecure、language、country、allow_sensitive、webapi_key。"
+        "tls_trust=system|insecure、language、country、allow_sensitive、max_items、webapi_key。"
+        "全部是具名参数（不是 key/value 对，传 {key:..., value:...} 会被忽略且返回 updated:{}）。"
         "传 webapi_key 会加密存进凭证库，不写配置文件。留空表示不改该项。"
     )
 )
@@ -677,6 +687,94 @@ def steam_buff_search(keyword: str, game: str = "csgo", limit: int = 10) -> dict
 @_safe
 def steam_buff_price(goods_id: int, game: str = "csgo", page_num: int = 1) -> dict[str, Any]:
     return buff.market_price(goods_id, game=game, page_num=page_num)
+
+
+# ---------------------------------------------------------------- prompt / resource
+#
+# MCP 的 prompt 是「用户手动选的预设任务」，resource 是「可读的文档块」。
+# 这两样只对带 UI 的客户端有意义；纯 agent 直接调 tool 更快。放在这里是因为
+# 客户端会显示这三类能力，空着会被当成服务端没实现。
+
+
+@mcp.prompt(
+    name="wishlist_sale_check",
+    title="愿望单折扣检查",
+    description="扫描愿望单，把当前折扣按「是否史低」分组，给出买/等的判断。",
+)
+def prompt_wishlist_sale_check(limit: str = "40") -> str:
+    return (
+        f"检查我的 Steam 愿望单折扣（最多 {limit} 个）。\n"
+        "步骤：\n"
+        "1. steam_deals 拉当前折扣，必要时多调几次直到 has_more=false\n"
+        "2. 对每个打折项用 steam_price_history 查历史低价\n"
+        "3. 分成两组：\n"
+        "   - 现在就是史低：low.shop == 'Steam' 且 low.amount == 当前价 → 建议现在买\n"
+        "   - 不是史低：给出史低价、差价百分比 → 建议等\n"
+        "4. low.shop 不是 Steam 的记录要单独标注「全渠道最低，Steam 端史低未知」，"
+        "不能当成 Steam 史低\n"
+        "输出：两张表 + 一句话总结（这波能省多少 / 建议买哪几个）。"
+    )
+
+
+@mcp.prompt(
+    name="purchase_advisor",
+    title="购买建议（预算约束）",
+    description="给定预算和候选游戏，算出能买哪些、需要充值多少。",
+)
+def prompt_purchase_advisor(appids: str = "", budget: str = "") -> str:
+    return (
+        "帮我决定这次买什么。\n"
+        f"候选游戏 appid：{appids or '（未指定，用 steam_deals 从愿望单里挑打折的）'}\n"
+        f"预算：{budget or '（未指定）'}\n"
+        "步骤：\n"
+        "1. steam_checkout(action='preview') 先读真实钱包余额——不要假设余额\n"
+        "2. 对每个候选用 steam_price_history 判断是否史低，非史低的标出差价\n"
+        "3. 按余额算能买几个，给出组合方案\n"
+        "4. 余额不够就说明差多少、需要充哪个档\n"
+        "约束：只推荐史低的；用户点名要的必须算进去并说明它占了多少预算。"
+    )
+
+
+@mcp.prompt(
+    name="account_health",
+    title="账号与登录态体检",
+    description="一条命令跑完网络、登录、在线状态的检查。",
+)
+def prompt_account_health() -> str:
+    return (
+        "检查 Steam MCP 的健康状态。\n"
+        "顺序（别跳步）：\n"
+        "1. steam_net_check — 5 个域名是否全 ok\n"
+        "2. steam_auth_status — logged_in / has_refresh_token / renew.ok\n"
+        "3. steam_me — 只有这个能证明会话真的活着，前两步都是历史快照\n"
+        "4. 有异常先 steam_auth_refresh，再考虑重登\n"
+        "注意：verification.valid=false + reason=expired 是自检的已知噪音，"
+        "不代表会话已死，以 steam_me 能否返回档案为准。"
+    )
+
+
+@mcp.resource(
+    "steam://docs/tools",
+    name="tools",
+    title="工具清单",
+    description="TOOLS.md：全部工具的参数与说明。",
+    mime_type="text/markdown",
+)
+def resource_tools_doc() -> str:
+    path = Path(__file__).resolve().parent.parent / "TOOLS.md"
+    return path.read_text(encoding="utf-8") if path.exists() else "# TOOLS.md 不存在"
+
+
+@mcp.resource(
+    "steam://docs/roadmap",
+    name="roadmap",
+    title="开发路线与踩坑记录",
+    description="ROADMAP.md：实现细节、被实测推翻的判断、决定不做的方向。",
+    mime_type="text/markdown",
+)
+def resource_roadmap_doc() -> str:
+    path = Path(__file__).resolve().parent.parent / "ROADMAP.md"
+    return path.read_text(encoding="utf-8") if path.exists() else "# ROADMAP.md 不存在"
 
 
 def main() -> None:

@@ -25,10 +25,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "tls_trust": "system",
         "timeout": 25,
         "retries": 2,
-        # 每个域名的请求最小间隔（秒），Steam 对高频访问很敏感
+        # 每个域名的请求最小间隔（秒），Steam 对高频访问很敏感。
+        # steamcommunity.com 实测 2s 仍会撞 429（/dev/apikey、/market/history 都踩过），放到 5s。
         "min_interval": {
             "store.steampowered.com": 0.4,
-            "steamcommunity.com": 2.0,
+            "steamcommunity.com": 5.0,
             "api.steampowered.com": 0.3,
             "login.steampowered.com": 0.5,
             "buff.163.com": 1.5,
