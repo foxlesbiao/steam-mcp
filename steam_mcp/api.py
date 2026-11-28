@@ -1032,17 +1032,37 @@ def news(appid: int, count: int = 5) -> dict[str, Any]:
 
 
 def reviews(appid: int, limit: int = 10, language: str = "all") -> dict[str, Any]:
-    """先试官方 appreviews JSON；被重定向（匿名/网络原因）就回落到商店页里的统计块。"""
+    """先试 ajaxappreviews JSON；拿不到就回落到商店页里的统计块。
+
+    端点注意：是 /ajaxappreviews/，不是 /appreviews/。
+    后者对 json=1 一律 302 回首页（真实浏览器里也一样），
+    商店页自己现在也走 ajaxappreviews，参数见下面的 params。
+    """
     try:
         resp = http.request(
             "GET",
-            f"{STORE}/appreviews/{appid}",
-            params={"json": 1, "language": language, "filter": "all", "num_per_page": limit, "purchase_type": "all"},
+            f"{STORE}/ajaxappreviews/{appid}",
+            params={
+                "filter": "recent",
+                "date_range_type": "all",
+                "day_range": 30,
+                "start_date": -1,
+                "end_date": -1,
+                "cursor": "*",
+                "filter_offtopic_activity": 1,
+                "playtime_filter_max": 0,
+                "playtime_filter_min": 0,
+                "playtime_type": "all",
+                "purchase_type": "all",
+                "language": language,
+                "num_per_page": limit,
+            },
             headers={
                 "Referer": f"{STORE}/app/{appid}/",
                 "Accept": "application/json, text/plain, */*",
                 "X-Requested-With": "XMLHttpRequest",
             },
+            cookies=auth.cookies_for("store.steampowered.com"),
         )
         if resp.status == 200 and resp.text.strip().startswith("{"):
             body = resp.json()
@@ -1062,7 +1082,8 @@ def reviews(appid: int, limit: int = 10, language: str = "all") -> dict[str, Any
             return {
                 "ok": True,
                 "appid": appid,
-                "source": "appreviews_api",
+                "source": "ajaxappreviews_api",
+                "cursor": body.get("cursor"),
                 "summary": {
                     "score_desc": summary.get("review_score_desc"),
                     "total_reviews": summary.get("total_reviews"),
