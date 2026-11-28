@@ -3,10 +3,69 @@
 一个给 AI agent 用的 Steam MCP：登录一次，之后档案、游戏库、愿望单、好友、库存、市场、商店、评测、购物车都能读写，
 另外还有一组「只读分析」工具（游玩时长、折扣雷达、Deck 兼容、库对比、价格快照）和「跨平台比价」（Steam 市场 vs 网易 BUFF、IsThereAnyDeal 历史低价）。
 
-- 当前版本：**v1.4.0，53 个工具**
+- 当前版本：**v1.4.1，53 个工具 + 3 个 prompt + 2 个 resource**
 - 平台：Windows / Linux（纯 Python，无 GUI 依赖）
 - 定位：agent 优先——所有工具结构化返回、明确的 `error` 码 + `hint`、批量任务给进度而不是卡死
 - **明确不做**：市场交易（上架/改价/撤单/接报价）、账号安全设置、本地客户端层
+
+## 能拿它做什么
+
+下面这些是实测跑通的完整流程，不是能力清单。
+
+**买游戏不踩坑**
+
+```
+steam_deals                     扫愿望单，列出所有正在打折的
+steam_price_history(appid)      查该游戏在 Steam 的历史最低价
+```
+
+两个一起用才能判断「现在是不是史低」。**只看 `discount_percent` 会踩坑**——-90% 的那款可能史低只有 -75%，折扣深不等于历史低。
+
+注意 `low.shop` 字段：ITAD 记的是全渠道史低。`shop` 不是 `"Steam"` 说明这个价在 Epic/GOG 之类的地方，你的 Steam 钱包买不到。**只有 `shop == "Steam"` 才能说「这是 Steam 史低」**。
+
+**从充值到入库**
+
+```
+steam_redeem_wallet_code(code)  兑换充值码（码有地区限制，印尼区码只能充印尼区号）
+steam_checkout(preview)         先看余额够不够，钱不够就地停
+steam_cart(add, appid)          加车
+steam_checkout(init)            建交易，不扣款
+steam_checkout(price)           拿到准确金额
+steam_checkout(finalize, confirm=true, expected_total=<上一步的 total>)
+```
+
+`finalize` 的 `expected_total` 必须传 `price` 返回的那个数。它会二次核价，不传或传错会被拒，一分钱不扣但单子作废——**作废的 transid 会锁住购物车**，之后加车全部静默失败，必须先 `cancel` 掉。
+
+到账验证看两处：`steam_library` 里有这个 appid + `preview` 的余额减少对应金额。`charged:true` 只是接口接受了。
+
+**账号体检**
+
+```
+steam_net_check     5 个域名是否可达
+steam_auth_status   登录态快照
+steam_me            只有这个能证明会话真活着
+```
+
+前两个都是历史快照，`logged_in:true` 而会话已死是可能的。判断会话死活只看 `steam_me` 能不能返回档案。
+
+**饰品行情**
+
+```
+steam_market_price(hash_name)            Steam 市场最低价
+steam_buff_search(keyword)               拿 goods_id
+steam_buff_price(goods_id)               BUFF 实时在售 + 求购
+steam_market_compare(hash_name)          两边最低价对比
+```
+
+`hash_name` 要和市场完全一致（含磨损、StatTrak 前缀），差一个字就查不到。BUFF 的价格是买家实付，手续费卖家承担。
+
+**看自己在玩什么**
+
+```
+steam_playtime_stats    总时长、Top 20、吃灰榜、半年没启动的
+steam_achievement_hunter  「再拿 N 个就全成就」的游戏
+```
+
 
 ## 安装
 
@@ -96,8 +155,11 @@ Steam 校验写操作（加愿望单、加购物车…）时要求 `sessionid` �
 
 ## 工具清单
 
-> 📖 每个工具的参数、返回与注意事项见 **[TOOLS.md](TOOLS.md)**（自动生成，覆盖全部 49 个工具，含错误码速查表）。
+> 📖 每个工具的参数、返回与注意事项见 **[TOOLS.md](TOOLS.md)**（自动生成，覆盖全部 53 个工具，含错误码速查表）。
 > 重新生成：`python3 scripts/gen_tools_doc.py > TOOLS.md`
+>
+> 另有 3 个 prompt（`wishlist_sale_check` / `purchase_advisor` / `account_health`）和 2 个 resource
+> （`steam://docs/tools` / `steam://docs/roadmap`）——带 UI 的客户端会列出来，纯 agent 用不到。
 
 **登录**：`steam_auth_status` `steam_auth_import_cookie` `steam_auth_login` `steam_auth_guard` `steam_auth_poll` `steam_auth_refresh` `steam_auth_logout` `steam_session_warm` `steam_webapi_key`
 
@@ -137,7 +199,31 @@ Steam 校验写操作（加愿望单、加购物车…）时要求 `sessionid` �
 - **域名白名单**：只允许 `store/api/login/help.steampowered.com`、`steamcommunity.com` 及其子域，外加 `buff.163.com`（BUFF 登录与行情），且必须 https。别的域名在发请求前就拒。
 - **敏感操作拦截**：结账、改密码、改邮箱、账号安全、接受交易、市场买卖挂单，默认拦下，必须显式 `confirm=true`（或把 `behavior.allow_sensitive` 打开才放行）。
 - **不写登录态**：只读 cookie，不代刷新、不回写浏览器、不碰客户端。
-- **限速**：每域名有最小请求间隔（社区 1.3s / 商店 0.4s / api 0.3s），429/503 自动退避，降低被风控的概率。
+- **限速**：每域名有最小请求间隔（社区 **5.0s** / 商店 0.4s / api 0.3s），429/503 自动退避，降低被风控的概率。
+  社区域 2s 实测仍会撞 429（`/dev/apikey`、`/market/history` 都踩过），所以给到 5s。
+
+## 已知限制
+
+这些是实测确认的边界，不是待办事项。
+
+| 限制 | 表现 | 说明 |
+|---|---|---|
+| `steam_market_search` 不可用 | 返回 `error: market_search_retired` | Steam 已下线 `/market/search/render/`，所有参数组合都 404，无替代接口。按关键词搜饰品请用 `steam_buff_search` |
+| `steam_wishlist_edit` 可能返回 `success:false` | `error: wishlist_noop` | 不是故障。三种情况会这样：已在愿望单 / 已拥有 / remove 时本来就不在。先查状态再判断 |
+| `/dev/apikey` 会限流 | `error: rate_limited` | 不是"没注册 key"。等 10-30 分钟再试 |
+| `steam_auth_logout` 会删掉 refresh token | 之后 `steam_auth_refresh` 返回 `no_refresh_token` | 无法静默恢复，只能重新登录或导 cookie |
+| ITAD 的历史低价跨全部商店 | `low.shop` 可能是 Epic/GOG | Steam 钱包买不到那些价。只有 `shop == "Steam"` 才算 Steam 史低 |
+| `steamcommunity.com` 国内需反代 | DNS 污染 | 见上面「网络这块」 |
+
+## 出错了怎么查
+
+1. **先看 `error` 码**，每个都有对应的 `hint` 说明下一步怎么做
+2. **网络问题** → `steam_net_check`
+3. **登录问题** → 先 `steam_auth_refresh`，还不行再考虑重登
+4. **写操作 `success:false`** → 多半是 no-op（状态本来就对），先读一次现状
+5. **限流 429** → 等几分钟，别重试
+
+错误码速查表在 [TOOLS.md](TOOLS.md) 末尾。
 
 ## 排查
 
